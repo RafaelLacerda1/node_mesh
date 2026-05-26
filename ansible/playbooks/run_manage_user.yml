@@ -1,0 +1,35 @@
+---
+- name: Gerenciar usuários do aplicativo nos nodes
+  hosts: all
+  gather_facts: false
+  become: yes
+  
+  # --- TOLERENCIA A FALHAS ---
+  ignore_unreachable: yes
+  ignore_errors: yes
+  any_errors_fatal: no
+
+  vars:
+    target_user: "{{ target_user | default(omit) }}"
+    target_pass: "{{ target_pass | default(omit) }}"
+    target_state: "{{ target_state | default('present') }}"
+
+  tasks:
+    - name: Garantir grupo appusers
+      ansible.builtin.group:
+        name: appusers
+        state: present
+
+    - name: Criar ou Atualizar Usuario
+      ansible.builtin.user:
+        name: "{{ target_user }}"
+        state: "{{ target_state }}"
+        shell: /bin/bash
+        home: "/home/{{ target_user }}"
+        create_home: yes
+        groups: "appusers,sudo"
+        append: yes
+        # Requer passlib instalado no container
+        password: "{{ target_pass | password_hash('sha512') if target_pass is defined else omit }}"
+        update_password: always
+      register: user_result

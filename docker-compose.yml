@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: monitor-de-nos-app
+    network_mode: "host"
+    restart: unless-stopped
+    environment:
+      - FLASK_APP=run.py
+      - FLASK_DEBUG=1
+      - SECRET_KEY=sua-chave-secreta
+      - WEBSSH_URL=/terminal/
+      - ANSIBLE_HOST_KEY_CHECKING=False
+      - ANSIBLE_PRIVATE_KEY_FILE=/home/appuser/.ssh/id_rsa
+      - PYTHONUNBUFFERED=1
+      - ANSIBLE_FORKS=50
+    volumes:
+      - ./data:/home/appuser/app/data
+      - ./id_rsa:/home/appuser/.ssh/id_rsa:ro
+      - ./id_rsa.pub:/home/appuser/.ssh/id_rsa.pub:ro
+
+  nginx:
+    image: nginx:alpine
+    container_name: monitor-nginx
+    network_mode: "host"
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+

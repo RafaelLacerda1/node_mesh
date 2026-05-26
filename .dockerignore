@@ -1,0 +1,41 @@
+# --- Controle de Versao e IDEs ---
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+
+# --- Python: Cache e Compilados ---
+# Ignora pastas __pycache__ em qualquer lugar do projeto
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.coverage
+
+# --- Ambientes Virtuais Locais ---
+# Caso você tenha criado um venv local para testes
+venv/
+env/
+.env
+
+# --- Docker ---
+# Não precisamos copiar a receita do Docker para dentro do container
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# --- Dados e Logs Locais ---
+# Ignora a pasta 'data' local para não sobrescrever o volume do Docker com dados velhos
+data/
+logs/
+*.db
+*.db-journal
+*.sqlite
+*.log
+
+# --- Arquivos Temporarios ---
+*.tar
+*.zip
+*.gz

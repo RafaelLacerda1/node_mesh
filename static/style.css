@@ -1,0 +1,69 @@
+/* static/style.css */
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* --- Status Indicators --- */
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    transition: background-color 0.3s ease;
+}
+.status-dot.online { background-color: #22c55e; /* Green-500 */ }
+.status-dot.offline { background-color: #ef4444; /* Red-500 */ }
+.status-dot.pending { background-color: #a1a1aa; /* Gray-400 */ animation: pulse 1.5s infinite; }
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* --- Layout Areas --- */
+.command-area {
+    background-color: #ffffff;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+    margin-bottom: 1.5rem;
+}
+
+/* --- Log Console --- */
+.log-area {
+    background-color: #1f2937; /* Gray-800 */
+    color: #e5e7eb; /* Gray-200 */
+    padding: 1rem;
+    border-radius: 0.5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    white-space: pre-wrap; 
+    max-height: 400px;
+    overflow-y: auto;
+    font-size: 0.875rem; /* text-sm */
+}
+
+.log-line {
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #374151; /* Gray-700 */
+}
+
+.log-node-name {
+    font-weight: bold;
+    color: #34d399; /* Green-400 */
+    margin-right: 0.5rem;
+}
+
+/* --- Log Status Colors --- */
+.log-success {
+    color: #10b981; /* Emerald-500 */
+}
+
+.log-error {
+    color: #ef4444; /* Red-500 */
+}
+
+.log-executing {
+    color: #eab308; /* Yellow-500 */
+}

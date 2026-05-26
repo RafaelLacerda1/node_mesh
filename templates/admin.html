@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Monitor de Nós</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css' ) }}">
+</head>
+<body class="bg-gray-100 text-gray-800">
+    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
+        
+        <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+            <div>
+                <h1 class="text-2xl md:text-3xl font-bold text-gray-900">Painel Administrativo</h1>
+                <p class="text-sm text-gray-500 mt-1">Gerenciamento de usuários e auditoria.</p>
+            </div>
+            <div>
+                <a href="{{ url_for('main.index') }}" class="mt-4 sm:mt-0 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-all">
+                    Voltar ao Monitor
+                </a>
+                <a href="{{ url_for('auth.logout') }}" class="mt-4 sm:mt-0 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-all">
+                    Sair
+                </a>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="mb-4 bg-{{ 'red' if category == 'danger' else ('green' if category == 'success' else 'yellow') }}-100 border border-{{ 'red' if category == 'danger' else ('green' if category == 'success' else 'yellow') }}-400 text-{{ 'red' if category == 'danger' else ('green' if category == 'success' else 'yellow') }}-700 px-4 py-3 rounded-lg" role="alert">
+                        <span class="block sm:inline">{{ message }}</span>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <main class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            
+            <div class="command-area">
+                <h2 class="text-xl font-semibold mb-3 text-gray-900">Gerenciar Usuários</h2>
+                
+                <form action="{{ url_for('admin.dashboard') }}" method="POST" class="mb-6 p-4 border rounded-lg bg-gray-50">
+                    <h3 class="font-semibold mb-2">Adicionar Novo Usuário</h3>
+                    <div class="flex flex-col sm:flex-row gap-2 mb-2">
+                        <input type="text" name="username" placeholder="Usuário" required class="flex-grow p-2 border border-gray-300 rounded-lg">
+                        <input type="password" name="password" placeholder="Senha" required class="flex-grow p-2 border border-gray-300 rounded-lg">
+                    </div>
+                    <div class="flex items-center mb-3">
+                        <input type="checkbox" id="is_admin" name="is_admin" class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                        <label for="is_admin" class="text-sm font-medium text-gray-700">É Administrador?</label>
+                    </div>
+                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">
+                        Criar Usuário
+                    </button>
+                </form>
+
+                <h3 class="font-semibold mb-2">Usuários Atuais</h3>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full bg-white rounded-lg shadow-sm">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Usuário</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Papel</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            {% for user in users %}
+                            <tr>
+                                <td class="px-4 py-2 whitespace-nowrap">{{ user.id }}</td>
+                                <td class="px-4 py-2 whitespace-nowrap font-medium">{{ user.username }}</td>
+                                <td class="px-4 py-2 whitespace-nowrap">
+                                    {% if user.is_admin %}
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">Admin</span>
+                                    {% else %}
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">Usuário</span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-2 whitespace-nowrap text-sm font-medium">
+                                    {% if user.id != current_user.id %}
+                                    <a href="{{ url_for('admin.reset_password', user_id=user.id) }}" class="text-blue-600 hover:text-blue-900">Resetar/Sincronizar</a>
+                                    
+                                    <span class="text-gray-300 mx-1">|</span>
+                                    
+                                    <form action="{{ url_for('admin.delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('Tem certeza que deseja deletar este usuário?');" class="inline">
+                                        <button type="submit" class="text-red-600 hover:text-red-900">Deletar</button>
+                                    </form>
+                                    {% else %}
+                                    <span class="text-gray-400">(Você)</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="command-area">
+                <h2 class="text-xl font-semibold mb-3 text-gray-900">Logs de Auditoria</h2>
+                <p class="text-sm text-gray-600 mb-4">Arquivos de log de comandos por usuário.</p>
+                {% if log_users %}
+                    <ul class="space-y-2">
+                        {% for log_user in log_users %}
+                        <li class="bg-gray-50 p-3 rounded-lg flex justify-between items-center">
+                            <span class="font-mono text-gray-800">{{ log_user }}.log</span>
+                            <a href="{{ url_for('admin.view_log', username=log_user) }}" target="_blank" class="bg-blue-100 hover:bg-blue-200 text-blue-800 text-xs font-semibold py-1 px-3 rounded-full">
+                                Visualizar
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-gray-500">Nenhum log de auditoria encontrado.</p>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+</body>
+</html>
