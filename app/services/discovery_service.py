@@ -35,6 +35,7 @@ class DiscoveryService:
     _SCAN_COMMAND = (
         'for i in $(seq 1 254); do '
         'ping -c1 -W1 {subnet}.$i > /dev/null 2>&1 & '
+        '[ $((i % 50)) -eq 0 ] && wait; '
         'done; wait; '
         'ip neigh show dev {interface} | grep -v FAILED'
     )
