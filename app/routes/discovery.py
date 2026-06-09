@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, render_template
 from flask_login import login_required
 from app.utils.decorators import admin_required
 from app.services.discovery_service import DiscoveryService
@@ -51,3 +51,34 @@ def list_discovered_nodes():
     """
     nodes = DiscoveryService.get_discovered_nodes()
     return jsonify({'nodes': nodes, 'total': len(nodes)})
+
+
+# --- FASE 3A: Novas rotas ---
+
+@discovery_bp.route('/api/discovery/scheduler', methods=['GET'])
+@login_required
+@admin_required
+def scheduler_status():
+    """
+    Retorna informacoes do scheduler de scan automatico.
+    Inclui: running, scan_count, last_scan_time, last_scan_result.
+    """
+    from app.services.scheduler import DiscoveryScheduler
+    return jsonify(DiscoveryScheduler.get_status())
+
+
+@discovery_bp.route('/discovery')
+@login_required
+@admin_required
+def discovery_dashboard():
+    """
+    Tela administrativa de descoberta de nos.
+    Exibe: lista de nos descobertos, status do scheduler,
+    botao de scan manual, informacoes online/offline.
+    """
+    return render_template('discovery.html',
+                           discovery_enabled=Config.DISCOVERY_ENABLED,
+                           gateway_ip=Config.DISCOVERY_GATEWAY_IP,
+                           interface=Config.DISCOVERY_INTERFACE,
+                           interval=Config.DISCOVERY_INTERVAL_SECONDS,
+                           threshold=Config.DISCOVERY_OFFLINE_THRESHOLD)

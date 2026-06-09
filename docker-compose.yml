@@ -21,6 +21,11 @@ services:
       - NODE_IP_END=40
       - NODE_SUBNET=10.2.0
 
+      # Fase 3A: Scan automatico
+      - DISCOVERY_ENABLED=true
+      - DISCOVERY_INTERVAL_SECONDS=300
+      - DISCOVERY_OFFLINE_THRESHOLD=3
+
     volumes:
       - ./data:/home/appuser/app/data
       - ./id_rsa:/home/appuser/.ssh/id_rsa:ro

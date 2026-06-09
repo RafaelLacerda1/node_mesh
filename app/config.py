@@ -39,3 +39,7 @@ class Config:
     DISCOVERY_GATEWAY_IP = os.environ.get("DISCOVERY_GATEWAY_IP", "172.30.0.13")
     INVENTORY_ENABLED = os.environ.get("INVENTORY_ENABLED", "false").lower() == "true"
 
+    # --- SCAN AUTOMATICO (Fase 3A) ---
+    DISCOVERY_INTERVAL_SECONDS = int(os.environ.get("DISCOVERY_INTERVAL_SECONDS", "300"))
+    DISCOVERY_OFFLINE_THRESHOLD = int(os.environ.get("DISCOVERY_OFFLINE_THRESHOLD", "3"))
+

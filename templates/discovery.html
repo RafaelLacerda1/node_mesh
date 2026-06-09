@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Descoberta de Nós — Monitor Mesh</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#2563eb',
+                        secondary: '#475569',
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans">
+    <div class="container mx-auto p-4 md:p-6 max-w-7xl">
+
+        <!-- HEADER -->
+        <header class="flex flex-col md:flex-row justify-between items-center mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+            <div class="mb-4 md:mb-0">
+                <h1 class="text-2xl font-bold text-slate-900">🔍 Descoberta de Nós</h1>
+                <p class="text-sm text-slate-500 mt-1">Painel administrativo de descoberta automática da rede mesh</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="{{ url_for('main.index') }}" class="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-all shadow-sm text-sm">← Dashboard</a>
+                <a href="{{ url_for('admin.dashboard') }}" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg transition-all shadow-sm text-sm">⚙️ Admin</a>
+            </div>
+        </header>
+
+        <!-- STATUS DO SCHEDULER -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <!-- Card: Discovery Status -->
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Descoberta</h3>
+                    <span id="discovery-badge" class="text-xs font-bold px-2 py-1 rounded-full {{ 'bg-green-100 text-green-700' if discovery_enabled else 'bg-red-100 text-red-700' }}">
+                        {{ 'ATIVA' if discovery_enabled else 'DESATIVADA' }}
+                    </span>
+                </div>
+                <div class="text-xs text-slate-500 space-y-1">
+                    <div>Gateway: <span class="font-mono text-slate-700">{{ gateway_ip }}</span></div>
+                    <div>Interface: <span class="font-mono text-slate-700">{{ interface }}</span></div>
+                    <div>Intervalo: <span class="font-mono text-slate-700">{{ interval }}s</span></div>
+                    <div>Tolerância offline: <span class="font-mono text-slate-700">{{ threshold }} scans</span></div>
+                </div>
+            </div>
+
+            <!-- Card: Scheduler Status -->
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Scheduler</h3>
+                    <span id="scheduler-badge" class="text-xs font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500">...</span>
+                </div>
+                <div id="scheduler-info" class="text-xs text-slate-500 space-y-1">
+                    <div>Carregando...</div>
+                </div>
+            </div>
+
+            <!-- Card: Resumo -->
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Resumo</h3>
+                </div>
+                <div id="summary-info" class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm text-slate-600">Total de nós</span>
+                        <span id="total-nodes" class="text-lg font-bold text-slate-800">—</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm text-green-600">● Online</span>
+                        <span id="total-online" class="text-lg font-bold text-green-600">—</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm text-red-500">● Offline</span>
+                        <span id="total-offline" class="text-lg font-bold text-red-500">—</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ACOES -->
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6">
+            <div class="flex flex-col md:flex-row items-center gap-3">
+                <button id="scan-btn" class="bg-primary hover:bg-blue-700 text-white font-bold py-2.5 px-6 rounded-lg transition-all shadow-sm text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg id="scan-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <span id="scan-btn-text">Executar Scan Manual</span>
+                </button>
+                <button id="refresh-nodes-btn" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2.5 px-6 rounded-lg transition-all text-sm flex items-center gap-2">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M20 4h-5v5M4 20h5v-5" />
+                    </svg>
+                    Atualizar Lista
+                </button>
+                <div id="scan-result" class="text-sm text-slate-500 ml-auto hidden">
+                    <span id="scan-result-text"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- TABELA DE NOS -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="bg-slate-50 px-6 py-3 border-b border-slate-200">
+                <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide">Nós Descobertos</h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                            <th class="px-6 py-3 text-left">Status</th>
+                            <th class="px-6 py-3 text-left">IP</th>
+                            <th class="px-6 py-3 text-left">MAC</th>
+                            <th class="px-6 py-3 text-left">Origem</th>
+                            <th class="px-6 py-3 text-left">Missed Scans</th>
+                            <th class="px-6 py-3 text-left">Último Contato</th>
+                            <th class="px-6 py-3 text-left">Primeiro Contato</th>
+                        </tr>
+                    </thead>
+                    <tbody id="nodes-table-body" class="divide-y divide-slate-100">
+                        <tr>
+                            <td colspan="7" class="px-6 py-8 text-center text-slate-400">Carregando nós...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- LOG DO ULTIMO SCAN -->
+        <div class="mt-6 bg-slate-900 rounded-xl shadow-lg overflow-hidden border border-slate-700">
+            <div class="bg-slate-800 px-4 py-2 border-b border-slate-700 flex justify-between items-center">
+                <h3 class="text-sm font-mono text-slate-300 font-bold">Log do Último Scan</h3>
+                <button onclick="document.getElementById('scan-log').textContent=''" class="text-xs text-slate-400 hover:text-white hover:underline">Limpar</button>
+            </div>
+            <pre id="scan-log" class="p-4 font-mono text-xs text-green-400 h-40 overflow-y-auto whitespace-pre-wrap">Aguardando dados do scheduler...</pre>
+        </div>
+    </div>
+
+    <script>
+        // --- REFERENCIAS ---
+        const scanBtn = document.getElementById('scan-btn');
+        const scanBtnText = document.getElementById('scan-btn-text');
+        const scanIcon = document.getElementById('scan-icon');
+        const scanResult = document.getElementById('scan-result');
+        const scanResultText = document.getElementById('scan-result-text');
+        const refreshNodesBtn = document.getElementById('refresh-nodes-btn');
+        const nodesTableBody = document.getElementById('nodes-table-body');
+        const scanLog = document.getElementById('scan-log');
+
+        // --- HELPERS ---
+        function timeAgo(isoString) {
+            if (!isoString) return 'nunca';
+            const diff = Date.now() - new Date(isoString).getTime();
+            const mins = Math.floor(diff / 60000);
+            if (mins < 1) return 'agora';
+            if (mins < 60) return `${mins}min atrás`;
+            const hours = Math.floor(mins / 60);
+            if (hours < 24) return `${hours}h atrás`;
+            return `${Math.floor(hours / 24)}d atrás`;
+        }
+
+        function formatDateTime(isoString) {
+            if (!isoString) return '—';
+            return new Date(isoString).toLocaleString('pt-BR');
+        }
+
+        function sourceLabel(source) {
+            const labels = {
+                'discovered': '<span class="bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">discovered</span>',
+                'manual': '<span class="bg-purple-100 text-purple-700 text-xs font-semibold px-2 py-0.5 rounded-full">manual</span>',
+                'static': '<span class="bg-slate-100 text-slate-600 text-xs font-semibold px-2 py-0.5 rounded-full">static</span>'
+            };
+            return labels[source] || `<span class="bg-slate-100 text-slate-600 text-xs font-semibold px-2 py-0.5 rounded-full">${source}</span>`;
+        }
+
+        // --- CARREGAR NODES ---
+        async function loadNodes() {
+            try {
+                const res = await fetch('/api/discovery/nodes');
+                if (res.status === 401) return window.location.href = '/login';
+                const data = await res.json();
+                renderNodes(data.nodes || []);
+            } catch (e) {
+                console.error('Erro ao carregar nós:', e);
+                nodesTableBody.innerHTML = '<tr><td colspan="7" class="px-6 py-8 text-center text-red-400">Erro ao carregar dados.</td></tr>';
+            }
+        }
+
+        function renderNodes(nodes) {
+            // Atualiza resumo
+            const online = nodes.filter(n => n.is_online).length;
+            const offline = nodes.length - online;
+            document.getElementById('total-nodes').textContent = nodes.length;
+            document.getElementById('total-online').textContent = online;
+            document.getElementById('total-offline').textContent = offline;
+
+            if (nodes.length === 0) {
+                nodesTableBody.innerHTML = '<tr><td colspan="7" class="px-6 py-8 text-center text-slate-400">Nenhum nó encontrado. Execute um scan.</td></tr>';
+                return;
+            }
+
+            nodesTableBody.innerHTML = nodes.map(node => {
+                const statusDot = node.is_online
+                    ? '<span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>'
+                    : '<span class="inline-flex rounded-full h-3 w-3 bg-red-500"></span>';
+                const statusText = node.is_online
+                    ? '<span class="text-green-600 font-semibold text-xs">Online</span>'
+                    : '<span class="text-red-500 font-semibold text-xs">Offline</span>';
+                const missedClass = node.missed_scans > 0 ? (node.missed_scans >= {{ threshold }} ? 'text-red-500 font-bold' : 'text-amber-500 font-semibold') : 'text-slate-400';
+
+                return `
+                    <tr class="hover:bg-slate-50 transition-colors fade-in">
+                        <td class="px-6 py-3">
+                            <div class="flex items-center gap-2">${statusDot} ${statusText}</div>
+                        </td>
+                        <td class="px-6 py-3 font-mono text-slate-700 font-semibold">${node.ip}</td>
+                        <td class="px-6 py-3 font-mono text-slate-500 text-xs">${node.mac || '—'}</td>
+                        <td class="px-6 py-3">${sourceLabel(node.source)}</td>
+                        <td class="px-6 py-3 ${missedClass}">${node.missed_scans}</td>
+                        <td class="px-6 py-3 text-slate-500 text-xs" title="${formatDateTime(node.last_seen)}">${timeAgo(node.last_seen)}</td>
+                        <td class="px-6 py-3 text-slate-500 text-xs" title="${formatDateTime(node.first_seen)}">${timeAgo(node.first_seen)}</td>
+                    </tr>`;
+            }).join('');
+        }
+
+        // --- CARREGAR SCHEDULER STATUS ---
+        async function loadSchedulerStatus() {
+            try {
+                const res = await fetch('/api/discovery/scheduler');
+                if (res.status === 401) return window.location.href = '/login';
+                const data = await res.json();
+
+                const badge = document.getElementById('scheduler-badge');
+                const info = document.getElementById('scheduler-info');
+
+                if (data.running) {
+                    badge.className = 'text-xs font-bold px-2 py-1 rounded-full bg-green-100 text-green-700';
+                    badge.textContent = 'RODANDO';
+                } else {
+                    badge.className = 'text-xs font-bold px-2 py-1 rounded-full bg-red-100 text-red-700';
+                    badge.textContent = 'PARADO';
+                }
+
+                info.innerHTML = `
+                    <div>Scans executados: <span class="font-mono text-slate-700 font-semibold">${data.scan_count}</span></div>
+                    <div>Último scan: <span class="font-mono text-slate-700">${data.last_scan_time ? timeAgo(data.last_scan_time) : 'nenhum'}</span></div>
+                    <div>Thread ativa: <span class="font-mono text-slate-700">${data.thread_alive ? 'Sim ✓' : 'Não ✗'}</span></div>
+                `;
+
+                // Log do ultimo scan
+                if (data.last_scan_result) {
+                    const r = data.last_scan_result;
+                    let logText = `Resultado: ${r.success ? '✓ Sucesso' : '✗ Falha'}\n`;
+                    if (r.total_found !== undefined) logText += `Dispositivos encontrados: ${r.total_found}\n`;
+                    if (r.total_saved !== undefined) logText += `Salvos/atualizados: ${r.total_saved}\n`;
+                    if (r.duration_s !== undefined) logText += `Duração: ${r.duration_s}s\n`;
+                    if (r.error) logText += `Erro: ${r.error}\n`;
+                    if (r.message) logText += `Mensagem: ${r.message}\n`;
+                    scanLog.textContent = logText;
+                }
+            } catch (e) {
+                console.error('Erro ao carregar status do scheduler:', e);
+            }
+        }
+
+        // --- SCAN MANUAL ---
+        async function executeScan() {
+            scanBtn.disabled = true;
+            scanBtnText.textContent = 'Escaneando...';
+            scanIcon.classList.add('animate-spin');
+            scanResult.classList.add('hidden');
+
+            try {
+                const res = await fetch('/api/discovery/scan', { method: 'POST' });
+                const data = await res.json();
+
+                scanResult.classList.remove('hidden');
+                if (data.success) {
+                    scanResultText.textContent = `✓ ${data.total_found} dispositivos encontrados em ${data.duration_s}s`;
+                    scanResultText.className = 'text-green-600 font-semibold';
+                } else {
+                    scanResultText.textContent = `✗ Falha: ${data.error || data.message || 'Erro desconhecido'}`;
+                    scanResultText.className = 'text-red-500 font-semibold';
+                }
+
+                // Recarrega tabela e scheduler
+                await Promise.all([loadNodes(), loadSchedulerStatus()]);
+            } catch (e) {
+                scanResult.classList.remove('hidden');
+                scanResultText.textContent = '✗ Erro de conexão';
+                scanResultText.className = 'text-red-500 font-semibold';
+            } finally {
+                scanBtn.disabled = false;
+                scanBtnText.textContent = 'Executar Scan Manual';
+                scanIcon.classList.remove('animate-spin');
+            }
+        }
+
+        // --- INIT ---
+        document.addEventListener('DOMContentLoaded', () => {
+            scanBtn.addEventListener('click', executeScan);
+            refreshNodesBtn.addEventListener('click', () => {
+                loadNodes();
+                loadSchedulerStatus();
+            });
+
+            // Carregamento inicial
+            loadNodes();
+            loadSchedulerStatus();
+
+            // Auto-refresh a cada 30 segundos
+            setInterval(() => {
+                loadNodes();
+                loadSchedulerStatus();
+            }, 30000);
+        });
+    </script>
+</body>
+</html>

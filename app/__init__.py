@@ -41,6 +41,14 @@ def create_app(config_class=Config):
     with app.app_context():
         create_database(app)
 
+    # --- FASE 3A: SCAN AUTOMATICO ---
+    # Inicia o scheduler de descoberta se DISCOVERY_ENABLED=true.
+    # Guard contra dupla execucao no debug mode do Flask (reloader).
+    if app.config.get('DISCOVERY_ENABLED', False):
+        if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+            from app.services.scheduler import DiscoveryScheduler
+            DiscoveryScheduler.start(app)
+
     return app
 
 def create_database(app):

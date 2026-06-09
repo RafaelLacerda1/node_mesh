@@ -282,25 +282,35 @@ class DiscoveryService:
             - Atualiza last_seen para todos os nos encontrados
             - Novos nos sao criados com source='discovered', is_managed=False
 
+        Fase 3A — Logica de online/offline com tolerancia:
+            - Nos encontrados: is_online=True, missed_scans=0
+            - Nos NAO encontrados (source='discovered'):
+              missed_scans += 1
+              Se missed_scans >= DISCOVERY_OFFLINE_THRESHOLD (padrao 3): is_online=False
+
         Retorna quantidade de registros salvos/atualizados.
         """
         saved = 0
+        found_ips = set()
+
         for dev in devices:
             try:
+                found_ips.add(dev['ip'])
                 node = Node.query.filter_by(ip=dev['ip']).first()
 
                 if node:
+                    # Marca como online e reseta contador
+                    node.is_online = True
+                    node.missed_scans = 0
+                    node.last_seen = scan_time
+
                     if node.source == 'discovered':
-                        # No descoberto previamente: atualiza MAC e last_seen
+                        # No descoberto previamente: atualiza MAC
                         node.mac = dev['mac']
-                        node.last_seen = scan_time
                     elif not node.mac:
-                        # No manual/estatico sem MAC: preenche MAC + last_seen
+                        # No manual/estatico sem MAC: preenche MAC
                         node.mac = dev['mac']
-                        node.last_seen = scan_time
-                    else:
-                        # No manual/estatico com MAC: atualiza apenas last_seen
-                        node.last_seen = scan_time
+                    # No manual/estatico com MAC: nao altera MAC
                 else:
                     # Dispositivo novo: cria com source='discovered'
                     node = Node(
@@ -310,7 +320,8 @@ class DiscoveryService:
                         first_seen=scan_time,
                         last_seen=scan_time,
                         is_online=True,
-                        is_managed=False
+                        is_managed=False,
+                        missed_scans=0
                     )
                     db.session.add(node)
 
@@ -318,6 +329,30 @@ class DiscoveryService:
             except Exception as e:
                 logger.error(f"[DISCOVERY] Erro ao salvar {dev['ip']}: {e}")
                 continue
+
+        # --- Fase 3A: Marcar nos NAO encontrados ---
+        # Incrementa missed_scans para nos 'discovered' que nao apareceram neste scan.
+        # So executa se houve dispositivos encontrados (gateway acessivel).
+        # Se found_ips estiver vazio, NAO penaliza — pode ser falha do gateway.
+        if found_ips:
+            try:
+                offline_threshold = Config.DISCOVERY_OFFLINE_THRESHOLD
+                not_found_nodes = Node.query.filter(
+                    Node.source == 'discovered',
+                    Node.is_online == True,
+                    ~Node.ip.in_(found_ips)
+                ).all()
+
+                for node in not_found_nodes:
+                    node.missed_scans = (node.missed_scans or 0) + 1
+                    if node.missed_scans >= offline_threshold:
+                        node.is_online = False
+                        logger.info(
+                            f"[DISCOVERY] {node.ip} marcado OFFLINE "
+                            f"(missed_scans={node.missed_scans}, threshold={offline_threshold})"
+                        )
+            except Exception as e:
+                logger.error(f"[DISCOVERY] Erro ao processar nos offline: {e}")
 
         try:
             db.session.commit()
@@ -338,3 +373,4 @@ class DiscoveryService:
         except Exception as e:
             logger.error(f"[DISCOVERY] Erro ao consultar tabela nodes: {e}")
             return []
+

@@ -23,6 +23,7 @@ class Node(db.Model):
     first_seen = db.Column(db.DateTime, default=datetime.utcnow)
     last_seen = db.Column(db.DateTime, nullable=True)
     last_status_check = db.Column(db.DateTime, nullable=True)
+    missed_scans = db.Column(db.Integer, default=0)  # Contador de scans sem resposta
     notes = db.Column(db.Text, nullable=True)
 
     def to_dict(self):
@@ -35,6 +36,7 @@ class Node(db.Model):
             'is_online': self.is_online,
             'is_managed': self.is_managed,
             'source': self.source,
+            'missed_scans': self.missed_scans or 0,
             'first_seen': self.first_seen.isoformat() if self.first_seen else None,
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
         }
