@@ -26,3 +26,15 @@ class Config:
     
     # Logs
     LOG_DIR = os.path.join(DB_FOLDER, 'logs')
+
+    # --- CONFIGURACAO DA REDE AD-HOC ---
+    # Valores padrao preservam o comportamento atual (10.2.0.1 a 10.2.0.20)
+    NODE_SUBNET = os.environ.get("NODE_SUBNET", "10.2.0")
+    NODE_IP_START = int(os.environ.get("NODE_IP_START", "1"))
+    NODE_IP_END = int(os.environ.get("NODE_IP_END", "20"))
+
+    # --- FEATURE FLAGS (desabilitadas por padrao) ---
+    DISCOVERY_ENABLED = os.environ.get("DISCOVERY_ENABLED", "false").lower() == "true"
+    DISCOVERY_INTERFACE = os.environ.get("DISCOVERY_INTERFACE", "wlan0")
+    INVENTORY_ENABLED = os.environ.get("INVENTORY_ENABLED", "false").lower() == "true"
+

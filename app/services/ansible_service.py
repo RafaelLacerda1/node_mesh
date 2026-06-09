@@ -117,7 +117,7 @@ class AnsibleService:
         Gerencia usuários. Retorna True se pelo menos UM nó for atualizado.
         """
         # 1. Filtra Online
-        all_ips = [f"10.2.0.{i}" for i in range(1, 21)]
+        all_ips = [f"{Config.NODE_SUBNET}.{i}" for i in range(Config.NODE_IP_START, Config.NODE_IP_END + 1)]
         status_nodes = AnsibleService.check_nodes_status(all_ips)
         online_ips = [n['ip'] for n in status_nodes if n['online']]
 

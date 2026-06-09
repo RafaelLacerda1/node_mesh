@@ -15,6 +15,12 @@ services:
       - ANSIBLE_PRIVATE_KEY_FILE=/home/appuser/.ssh/id_rsa
       - PYTHONUNBUFFERED=1
       - ANSIBLE_FORKS=50
+
+      # Novo
+      - NODE_IP_START=1
+      - NODE_IP_END=40
+      - NODE_SUBNET=10.2.0
+
     volumes:
       - ./data:/home/appuser/app/data
       - ./id_rsa:/home/appuser/.ssh/id_rsa:ro
@@ -27,4 +33,3 @@ services:
     restart: unless-stopped
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-

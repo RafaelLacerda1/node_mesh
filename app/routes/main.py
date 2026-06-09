@@ -24,8 +24,8 @@ def status():
     Rota UNIFICADA para verificar status.
     Aceita GET (load inicial) e POST (refresh forçado).
     """
-    # Gera IPs de 10.2.0.1 a 10.2.0.20
-    nodes = [f"10.2.0.{i}" for i in range(1, 21)]
+    # Gera IPs a partir da configuracao (padrao: 10.2.0.1 a 10.2.0.20)
+    nodes = [f"{Config.NODE_SUBNET}.{i}" for i in range(Config.NODE_IP_START, Config.NODE_IP_END + 1)]
     
     try:
         results = AnsibleService.check_nodes_status(nodes)
