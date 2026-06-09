@@ -36,5 +36,6 @@ class Config:
     # --- FEATURE FLAGS (desabilitadas por padrao) ---
     DISCOVERY_ENABLED = os.environ.get("DISCOVERY_ENABLED", "false").lower() == "true"
     DISCOVERY_INTERFACE = os.environ.get("DISCOVERY_INTERFACE", "wlan0")
+    DISCOVERY_GATEWAY_IP = os.environ.get("DISCOVERY_GATEWAY_IP", "172.30.0.13")
     INVENTORY_ENABLED = os.environ.get("INVENTORY_ENABLED", "false").lower() == "true"
 
