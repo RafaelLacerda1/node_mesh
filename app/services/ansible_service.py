@@ -116,13 +116,17 @@ class AnsibleService:
         """
         Gerencia usuários. Retorna True se pelo menos UM nó for atualizado.
         """
-        # 1. Filtra Online
-        all_ips = [f"{Config.NODE_SUBNET}.{i}" for i in range(Config.NODE_IP_START, Config.NODE_IP_END + 1)]
-        status_nodes = AnsibleService.check_nodes_status(all_ips)
-        online_ips = [n['ip'] for n in status_nodes if n['online']]
+        from app.models.node import Node
+        
+        # 1. Filtra Online: Lê diretamente da tabela nodes (Única fonte de verdade)
+        online_nodes = Node.query.filter_by(is_online=True).all()
+        online_ips = [node.ip for node in online_nodes]
+        
+        # Ordenação numérica pelo último octeto do IP
+        online_ips = sorted(online_ips, key=lambda ip: int(ip.split('.')[-1]))
 
         if not online_ips:
-            logger.warning("Nenhum nó online. Atualização feita apenas no banco local.")
+            logger.warning("Nenhum nó online encontrado no banco. Atualização feita apenas no banco local.")
             return True
 
         # 2. Executa Ansible

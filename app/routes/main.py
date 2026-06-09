@@ -5,6 +5,8 @@ from app.services.ansible_service import AnsibleService
 from app.services.audit_service import AuditService
 from app.config import Config
 from app.models.user import User 
+from app.models.node import Node
+from app.services.discovery_service import DiscoveryService
 
 main_bp = Blueprint('main', __name__)
 
@@ -22,16 +24,33 @@ def index():
 def status():
     """
     Rota UNIFICADA para verificar status.
-    Aceita GET (load inicial) e POST (refresh forçado).
+    Fase 3B: Tabela nodes como única fonte de verdade.
     """
-    # Gera IPs a partir da configuracao (padrao: 10.2.0.1 a 10.2.0.20)
-    nodes = [f"{Config.NODE_SUBNET}.{i}" for i in range(Config.NODE_IP_START, Config.NODE_IP_END + 1)]
-    
     try:
-        results = AnsibleService.check_nodes_status(nodes)
+        # Fluxo obrigatório do Reverificar:
+        # 1. Usuário clica em Reverificar -> POST
+        # 2. Executa run_scan() -> faz ping sweep e ip neigh -> salva na tabela nodes
+        if request.method == 'POST':
+            DiscoveryService.run_scan()
+            
+        # Lê a tabela nodes (já com dados atualizados caso tenha sido um POST)
+        nodes_db = Node.query.all()
+        
+        results = []
+        for node in nodes_db:
+            nome = node.label if node.label else f"Nó {node.ip.split('.')[-1]}"
+            results.append({
+                'nome': nome,
+                'ip': node.ip,
+                'online': node.is_online
+            })
+            
+        # Ordenação numérica obrigatória pelo último octeto do IP
+        results = sorted(results, key=lambda x: int(x['ip'].split('.')[-1]))
+        
         return jsonify({'nodes': results})
     except Exception as e:
-        return jsonify({'error': 'ansible_execution_failed', 'details': str(e)}), 500
+        return jsonify({'error': 'status_check_failed', 'details': str(e)}), 500
 
 @main_bp.route('/api/command', methods=['POST'])
 @login_required

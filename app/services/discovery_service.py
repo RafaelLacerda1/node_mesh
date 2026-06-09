@@ -2,6 +2,7 @@ import subprocess
 import logging
 import re
 import time
+import threading
 from datetime import datetime
 from app.config import Config
 from app.extensions import db
@@ -21,6 +22,8 @@ class DiscoveryService:
     Seguranca: Protegido pela flag DISCOVERY_ENABLED (false por padrao).
     Isolamento: Falhas aqui NUNCA afetam dashboard, Ansible, SSH ou autenticacao.
     """
+
+    _scan_lock = threading.Lock()
 
     # --- TIMEOUTS EXPLICITOS ---
     SSH_CONNECT_TIMEOUT = 5     # segundos para estabelecer conexao SSH
@@ -146,97 +149,115 @@ class DiscoveryService:
                 'message': 'Descoberta desabilitada. Defina DISCOVERY_ENABLED=true para ativar.'
             }
 
-        scan_start = time.time()
-        scan_time = datetime.utcnow()
-
-        remote_cmd = DiscoveryService._SCAN_COMMAND.format(
-            subnet=Config.NODE_SUBNET,
-            interface=Config.DISCOVERY_INTERFACE
-        )
+        if not DiscoveryService._scan_lock.acquire(blocking=False):
+            logger.info("[DISCOVERY] Scan ignorado: execução já em andamento")
+            return {
+                'success': True,
+                'scan_running': True,
+                'message': 'Scan já em andamento',
+                'devices': [],
+                'total_found': 0,
+                'total_saved': 0,
+                'duration_s': 0,
+                'method': DiscoveryService.DISCOVERY_METHOD,
+                'gateway_reachable': True
+            }
 
         try:
-            ssh_cmd = DiscoveryService._build_ssh_command(remote_cmd)
-            logger.info(
-                f"[DISCOVERY] Iniciando scan via gateway {Config.DISCOVERY_GATEWAY_IP} "
-                f"(interface={Config.DISCOVERY_INTERFACE}, metodo={DiscoveryService.DISCOVERY_METHOD})"
+            scan_start = time.time()
+            scan_time = datetime.utcnow()
+
+            remote_cmd = DiscoveryService._SCAN_COMMAND.format(
+                subnet=Config.NODE_SUBNET,
+                interface=Config.DISCOVERY_INTERFACE
             )
 
-            result = subprocess.run(
-                ssh_cmd, capture_output=True, text=True,
-                timeout=DiscoveryService.SSH_COMMAND_TIMEOUT
-            )
+            try:
+                ssh_cmd = DiscoveryService._build_ssh_command(remote_cmd)
+                logger.info(
+                    f"[DISCOVERY] Iniciando scan via gateway {Config.DISCOVERY_GATEWAY_IP} "
+                    f"(interface={Config.DISCOVERY_INTERFACE}, metodo={DiscoveryService.DISCOVERY_METHOD})"
+                )
 
-            duration = round(time.time() - scan_start, 2)
+                result = subprocess.run(
+                    ssh_cmd, capture_output=True, text=True,
+                    timeout=DiscoveryService.SSH_COMMAND_TIMEOUT
+                )
 
-            # SSH falhou completamente (sem saida)
-            if result.returncode != 0 and not result.stdout.strip():
-                error_msg = result.stderr.strip() or 'Sem resposta do gateway'
-                logger.error(f"[DISCOVERY] SSH falhou ({duration}s): {error_msg}")
+                duration = round(time.time() - scan_start, 2)
+
+                # SSH falhou completamente (sem saida)
+                if result.returncode != 0 and not result.stdout.strip():
+                    error_msg = result.stderr.strip() or 'Sem resposta do gateway'
+                    logger.error(f"[DISCOVERY] SSH falhou ({duration}s): {error_msg}")
+                    return {
+                        'success': False,
+                        'error': 'gateway_unreachable',
+                        'devices': [],
+                        'total_found': 0,
+                        'total_saved': 0,
+                        'duration_s': duration,
+                        'method': DiscoveryService.DISCOVERY_METHOD,
+                        'gateway_reachable': False,
+                        'message': f'Gateway inacessivel: {error_msg}'
+                    }
+
+                # Parsear resultados
+                devices = DiscoveryService._parse_ip_neigh(result.stdout)
+                saved_count = DiscoveryService._save_to_db(devices, scan_time)
+
+                logger.info(
+                    f"[DISCOVERY] Scan finalizado. Concluido em {duration}s: "
+                    f"{len(devices)} encontrados, {saved_count} salvos/atualizados"
+                )
+
+                return {
+                    'success': True,
+                    'devices': devices,
+                    'total_found': len(devices),
+                    'total_saved': saved_count,
+                    'duration_s': duration,
+                    'method': DiscoveryService.DISCOVERY_METHOD,
+                    'gateway_reachable': True,
+                    'scan_time': scan_time.isoformat(),
+                    'gateway': Config.DISCOVERY_GATEWAY_IP,
+                    'interface': Config.DISCOVERY_INTERFACE
+                }
+
+            except subprocess.TimeoutExpired:
+                duration = round(time.time() - scan_start, 2)
+                logger.error(
+                    f"[DISCOVERY] Timeout apos {duration}s "
+                    f"(limite={DiscoveryService.SSH_COMMAND_TIMEOUT}s)"
+                )
                 return {
                     'success': False,
-                    'error': 'gateway_unreachable',
+                    'error': 'scan_timeout',
+                    'devices': [],
+                    'total_found': 0,
+                    'total_saved': 0,
+                    'duration_s': duration,
+                    'method': DiscoveryService.DISCOVERY_METHOD,
+                    'gateway_reachable': True,  # conectou mas demorou
+                    'message': f'Scan excedeu o tempo limite ({DiscoveryService.SSH_COMMAND_TIMEOUT}s).'
+                }
+            except Exception as e:
+                duration = round(time.time() - scan_start, 2)
+                logger.error(f"[DISCOVERY] Erro inesperado apos {duration}s: {e}")
+                return {
+                    'success': False,
+                    'error': 'unexpected_error',
                     'devices': [],
                     'total_found': 0,
                     'total_saved': 0,
                     'duration_s': duration,
                     'method': DiscoveryService.DISCOVERY_METHOD,
                     'gateway_reachable': False,
-                    'message': f'Gateway inacessivel: {error_msg}'
+                    'message': str(e)
                 }
-
-            # Parsear resultados
-            devices = DiscoveryService._parse_ip_neigh(result.stdout)
-            saved_count = DiscoveryService._save_to_db(devices, scan_time)
-
-            logger.info(
-                f"[DISCOVERY] Concluido em {duration}s: "
-                f"{len(devices)} encontrados, {saved_count} salvos/atualizados"
-            )
-
-            return {
-                'success': True,
-                'devices': devices,
-                'total_found': len(devices),
-                'total_saved': saved_count,
-                'duration_s': duration,
-                'method': DiscoveryService.DISCOVERY_METHOD,
-                'gateway_reachable': True,
-                'scan_time': scan_time.isoformat(),
-                'gateway': Config.DISCOVERY_GATEWAY_IP,
-                'interface': Config.DISCOVERY_INTERFACE
-            }
-
-        except subprocess.TimeoutExpired:
-            duration = round(time.time() - scan_start, 2)
-            logger.error(
-                f"[DISCOVERY] Timeout apos {duration}s "
-                f"(limite={DiscoveryService.SSH_COMMAND_TIMEOUT}s)"
-            )
-            return {
-                'success': False,
-                'error': 'scan_timeout',
-                'devices': [],
-                'total_found': 0,
-                'total_saved': 0,
-                'duration_s': duration,
-                'method': DiscoveryService.DISCOVERY_METHOD,
-                'gateway_reachable': True,  # conectou mas demorou
-                'message': f'Scan excedeu o tempo limite ({DiscoveryService.SSH_COMMAND_TIMEOUT}s).'
-            }
-        except Exception as e:
-            duration = round(time.time() - scan_start, 2)
-            logger.error(f"[DISCOVERY] Erro inesperado apos {duration}s: {e}")
-            return {
-                'success': False,
-                'error': 'unexpected_error',
-                'devices': [],
-                'total_found': 0,
-                'total_saved': 0,
-                'duration_s': duration,
-                'method': DiscoveryService.DISCOVERY_METHOD,
-                'gateway_reachable': False,
-                'message': str(e)
-            }
+        finally:
+            DiscoveryService._scan_lock.release()
+            logger.info("[DISCOVERY] Lock liberado")
 
     @staticmethod
     def _parse_ip_neigh(output: str) -> list:
