@@ -9,10 +9,7 @@
   ignore_errors: yes
   any_errors_fatal: no
 
-  vars:
-    target_user: "{{ target_user | default(omit) }}"
-    target_pass: "{{ target_pass | default(omit) }}"
-    target_state: "{{ target_state | default('present') }}"
+
 
   tasks:
     - name: Garantir grupo appusers
