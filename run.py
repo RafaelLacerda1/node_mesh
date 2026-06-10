@@ -1,5 +1,12 @@
 import os
+import logging
 from app import create_app
+
+class IgnoreOptionsFilter(logging.Filter):
+    def filter(self, record):
+        return '"OPTIONS ' not in record.getMessage()
+
+logging.getLogger('werkzeug').addFilter(IgnoreOptionsFilter())
 
 app = create_app()
 
