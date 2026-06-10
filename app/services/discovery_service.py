@@ -204,6 +204,17 @@ class DiscoveryService:
 
                 # Parsear resultados
                 devices = DiscoveryService._parse_ip_neigh(result.stdout)
+                
+                # Garante que o IP do gateway da malha conste na lista,
+                # ja que o 'ip neigh' nao lista o proprio host.
+                gateway_mesh_ip = f"{Config.NODE_SUBNET}.1"
+                if not any(d.get('ip') == gateway_mesh_ip for d in devices):
+                    devices.append({
+                        'ip': gateway_mesh_ip,
+                        'mac': None,
+                        'state': 'REACHABLE'
+                    })
+
                 saved_count = DiscoveryService._save_to_db(devices, scan_time)
 
                 logger.info(
