@@ -37,14 +37,13 @@ def dashboard():
                 db.session.commit()
                 
                 # 2. Cria usuário nos Nós (Via Ansible)
-                # A função manage_node_user retorna True se o playbook rodar com sucesso
-                ansible_success = AnsibleService.manage_node_user(username, 'present', password)
+                ansible_result = AnsibleService.manage_node_user(username, 'present', password)
                 
-                if ansible_success:
-                    flash(f'Usuário "{username}" criado com sucesso no banco e nos nós!', 'success')
+                if ansible_result.get('success', False):
+                    flash(f'Usuário "{username}" salvo no banco. Ansible: {ansible_result["message"]}', 'success' if ansible_result.get('status') == 'success' else 'warning')
                     AuditService.log_action(current_user.username, "CREATE_USER", f"Created user: {username}")
                 else:
-                    flash(f'Usuário "{username}" salvo no banco, mas houve erro ao criar nos nós. Verifique os logs.', 'warning')
+                    flash(f'Usuário "{username}" salvo no banco, mas Ansible falhou: {ansible_result["message"]}', 'danger')
                     AuditService.log_action(current_user.username, "CREATE_USER_PARTIAL", f"Created DB only: {username}")
 
             except Exception as e:
@@ -80,9 +79,13 @@ def delete_user(user_id):
         db.session.commit()
         
         # 2. Remove dos Nós (Via Ansible)
-        AnsibleService.manage_node_user(username, 'absent')
+        ansible_result = AnsibleService.manage_node_user(username, 'absent')
         
-        flash(f'Usuário "{username}" removido com sucesso.', 'success')
+        if ansible_result.get('success', False):
+            flash(f'Usuário "{username}" removido do banco. Ansible: {ansible_result["message"]}', 'success' if ansible_result.get('status') == 'success' else 'warning')
+        else:
+            flash(f'Usuário "{username}" removido do banco, mas Ansible falhou: {ansible_result["message"]}', 'danger')
+            
         AuditService.log_action(current_user.username, "DELETE_USER", f"Deleted user: {username}")
         
     except Exception as e:
@@ -124,13 +127,13 @@ def reset_password(user_id):
                 db.session.commit()
                 
                 # 2. Atualiza nos Nós (Recriar/Atualizar com 'present' atualiza a senha)
-                ansible_success = AnsibleService.manage_node_user(user.username, 'present', new_pass)
+                ansible_result = AnsibleService.manage_node_user(user.username, 'present', new_pass)
                 
-                if ansible_success:
-                    flash(f'Senha de "{user.username}" atualizada e sincronizada com sucesso.', 'success')
+                if ansible_result.get('success', False):
+                    flash(f'Senha de "{user.username}" atualizada no banco. Ansible: {ansible_result["message"]}', 'success' if ansible_result.get('status') == 'success' else 'warning')
                     AuditService.log_action(current_user.username, "RESET_PASSWORD", f"Reset password for: {user.username}")
                 else:
-                    flash(f'Senha atualizada no banco, mas falhou ao sincronizar com os nós.', 'warning')
+                    flash(f'Senha atualizada no banco, mas Ansible falhou: {ansible_result["message"]}', 'danger')
                 
                 return redirect(url_for('admin.dashboard'))
                 

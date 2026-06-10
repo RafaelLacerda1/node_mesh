@@ -112,24 +112,25 @@ class AnsibleService:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     @staticmethod
-    def manage_node_user(username: str, state: str, password: str = None) -> bool:
+    def manage_node_user(username: str, state: str, password: str = None) -> Dict[str, Any]:
         """
-        Gerencia usuários. Retorna True se pelo menos UM nó for atualizado.
+        Gerencia usuários nos nós.
         """
         from app.models.node import Node
         
-        # 1. Filtra Online: Lê diretamente da tabela nodes (Única fonte de verdade)
         online_nodes = Node.query.filter_by(is_online=True).all()
-        online_ips = [node.ip for node in online_nodes]
-        
-        # Ordenação numérica pelo último octeto do IP
-        online_ips = sorted(online_ips, key=lambda ip: int(ip.split('.')[-1]))
+        online_ips = sorted([node.ip for node in online_nodes], key=lambda ip: int(ip.split('.')[-1]))
 
         if not online_ips:
             logger.warning("Nenhum nó online encontrado no banco. Atualização feita apenas no banco local.")
-            return True
+            return {
+                "success": True,
+                "status": "no_nodes",
+                "message": "Operação realizada localmente. Nenhum nó online para aplicar o Ansible.",
+                "counts": {"success": 0, "failed": 0, "unreachable": 0, "total": 0},
+                "hosts": {"success": [], "failed": [], "unreachable": []}
+            }
 
-        # 2. Executa Ansible
         hosts_list = [{'ip': ip} for ip in online_ips]
         temp_dir = AnsibleService._create_inventory(hosts_list, user='fitpath')
         
@@ -164,36 +165,84 @@ class AnsibleService:
                 quiet=True
             )
             
-            # 3. VERIFICACAO DE SUCESSO PARCIAL
-            success_count = 0
-            fail_count = 0
+            success_hosts = set()
+            failed_hosts = set()
+            unreachable_hosts = set()
             
             if hasattr(r, 'events'):
                 for event in r.events:
-                    if event['event'] == 'runner_on_ok':
-                        success_count += 1
-                    elif event['event'] == 'runner_on_failed':
-                        fail_count += 1
-                        # Log do erro especifico para debug
-                        host = event.get('event_data', {}).get('host')
-                        msg = event.get('event_data', {}).get('res', {}).get('msg')
-                        logger.error(f"Falha no host {host}: {msg}")
+                    event_name = event.get('event')
+                    event_data = event.get('event_data', {})
+                    host = event_data.get('host')
+                    
+                    if not host:
+                        continue
+                        
+                    if event_name == 'runner_on_ok':
+                        success_hosts.add(host)
+                    elif event_name == 'runner_on_failed':
+                        failed_hosts.add(host)
+                        logger.error(f"Falha no host {host}")
+                    elif event_name == 'runner_on_unreachable':
+                        unreachable_hosts.add(host)
+                        logger.error(f"Host inalcançável {host}")
 
-            logger.info(f"Resumo Ansible: {success_count} sucessos, {fail_count} falhas.")
+            # Remoção de falsos sucessos (se falhou em alguma task, não é sucesso)
+            final_success = list(success_hosts - failed_hosts - unreachable_hosts)
+            final_failed = list(failed_hosts)
+            final_unreachable = list(unreachable_hosts)
 
-            # Se pelo menos 1 funcionou, retornamos True para a interface
-            if success_count > 0:
-                return True
+            success_count = len(final_success)
+            fail_count = len(final_failed)
+            unreachable_count = len(final_unreachable)
+            total_count = len(hosts_list)
+
+            # Lógica de status e success booleano
+            if success_count > 0 and fail_count == 0 and unreachable_count == 0:
+                status = "success"
+                is_success = True
+            elif success_count > 0 and (fail_count > 0 or unreachable_count > 0):
+                status = "partial"
+                is_success = True
+            else:
+                status = "failed"
+                is_success = False
+
+            # Montar a mensagem amigável
+            msg_parts = []
+            if success_count > 0: msg_parts.append(f"{success_count} nós atualizados com sucesso")
+            if fail_count > 0: msg_parts.append(f"{fail_count} nós falharam")
+            if unreachable_count > 0: msg_parts.append(f"{unreachable_count} nós inacessíveis")
             
-            # Se falhou em todos
-            if fail_count > 0 and success_count == 0:
-                return False
-                
-            # Se nao teve eventos, assume sucesso se RC=0
-            return r.rc == 0
+            final_message = ", ".join(msg_parts) if msg_parts else "Nenhum nó processado pelo Ansible."
+
+            logger.info(f"Resumo Ansible: {final_message}")
+
+            return {
+                "success": is_success,
+                "status": status,
+                "message": final_message,
+                "counts": {
+                    "success": success_count,
+                    "failed": fail_count,
+                    "unreachable": unreachable_count,
+                    "total": total_count
+                },
+                "hosts": {
+                    "success": final_success,
+                    "failed": final_failed,
+                    "unreachable": final_unreachable
+                }
+            }
 
         except Exception as e:
             logger.error(f"Erro Python: {e}")
-            return False
+            return {
+                "success": False,
+                "status": "error",
+                "message": f"Erro interno: {str(e)}",
+                "counts": {"success": 0, "failed": 0, "unreachable": 0, "total": len(hosts_list)},
+                "hosts": {"success": [], "failed": [], "unreachable": []}
+            }
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)

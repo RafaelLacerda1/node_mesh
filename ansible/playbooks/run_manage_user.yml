@@ -5,8 +5,7 @@
   become: yes
   
   # --- TOLERENCIA A FALHAS ---
-  ignore_unreachable: yes
-  ignore_errors: yes
+  # ignore_unreachable e ignore_errors removidos para permitir tratamento preciso de falhas
   any_errors_fatal: no
 
 
