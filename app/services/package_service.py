@@ -4,15 +4,14 @@ import subprocess
 import threading
 import logging
 import shutil
-import tempfile
 import time
-import yaml
 import ansible_runner
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from app.config import Config
 from app.extensions import db
 from app.models.package import PackageJob, PackageJobNode
+from app.services.ansible_service import AnsibleService
 
 logger = logging.getLogger(__name__)
 
@@ -329,19 +328,9 @@ class PackageService:
         )
         
         hosts_list = [{'ip': ip} for ip in node_ips]
-        temp_dir = tempfile.mkdtemp(prefix='pkg_validate_')
-        
+        temp_dir = AnsibleService._create_inventory(hosts_list, user='fitpath')
+
         try:
-            # Criar inventário
-            inventory = {'all': {'hosts': {}}}
-            for host in hosts_list:
-                inventory['all']['hosts'][host['ip']] = {
-                    'ansible_user': 'fitpath',
-                    'ansible_python_interpreter': '/usr/bin/python3'
-                }
-            with open(os.path.join(temp_dir, 'inventory.yml'), 'w') as f:
-                yaml.dump(inventory, f)
-            
             r = ansible_runner.run(
                 private_data_dir=temp_dir,
                 inventory=os.path.join(temp_dir, 'inventory.yml'),
@@ -350,7 +339,7 @@ class PackageService:
                 module_args=validation_cmd,
                 extravars={
                     'ansible_ssh_private_key_file': Config.SSH_KEY_PATH,
-                    'ansible_ssh_common_args': '-o StrictHostKeyChecking=no -o ConnectTimeout=5',
+                    'ansible_ssh_common_args': AnsibleService.gateway_ssh_common_args('-o ConnectTimeout=5'),
                 },
                 quiet=True,
             )
@@ -665,8 +654,9 @@ class PackageService:
                 node_entry.started_at = datetime.utcnow()
         db.session.commit()
         
-        temp_dir = tempfile.mkdtemp(prefix='pkg_install_')
-        
+        hosts_list = [{'ip': ip} for ip in node_ips]
+        temp_dir = AnsibleService._create_inventory(hosts_list, user='fitpath')
+
         try:
             # Staging: copiar .deb para diretório temporário
             debs_staging = os.path.join(temp_dir, 'debs')
@@ -674,17 +664,7 @@ class PackageService:
             for deb_path in deb_files:
                 if os.path.exists(deb_path):
                     shutil.copy2(deb_path, debs_staging)
-            
-            # Criar inventário
-            inventory = {'all': {'hosts': {}}}
-            for ip in node_ips:
-                inventory['all']['hosts'][ip] = {
-                    'ansible_user': 'fitpath',
-                    'ansible_python_interpreter': '/usr/bin/python3'
-                }
-            with open(os.path.join(temp_dir, 'inventory.yml'), 'w') as f:
-                yaml.dump(inventory, f)
-            
+
             # Lista de .deb para o playbook
             deb_file_list = [
                 os.path.join(debs_staging, f)
@@ -697,7 +677,7 @@ class PackageService:
             extravars = {
                 'deb_files': deb_file_list,
                 'ansible_ssh_private_key_file': Config.SSH_KEY_PATH,
-                'ansible_ssh_common_args': '-o StrictHostKeyChecking=no -o ConnectTimeout=10',
+                'ansible_ssh_common_args': AnsibleService.gateway_ssh_common_args('-o ConnectTimeout=10'),
                 'ansible_become': True,
                 'ansible_become_password': 'cefetmg',
             }

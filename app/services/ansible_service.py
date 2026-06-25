@@ -10,6 +10,25 @@ from app.config import Config
 logger = logging.getLogger(__name__)
 
 class AnsibleService:
+    # Tempo de conexao para o hop VM -> Gateway dentro do ProxyCommand
+    GATEWAY_CONNECT_TIMEOUT = 5
+
+    @staticmethod
+    def gateway_ssh_common_args(extra: str = '') -> str:
+        """
+        Retorna ansible_ssh_common_args com ProxyCommand via o Gateway da malha
+        (172.30.0.13 / 10.2.0.1). O Gateway e a unica rota com IP forwarding
+        liberado entre a VM e os TV Box (10.2.0.0/24) -- conectar direto ao IP
+        do no falha por bloqueio de firewall no Gateway (ver task.md, Fase 5).
+        Usado por todo metodo desta classe e por PackageService; nunca montar
+        ansible_ssh_common_args manualmente fora daqui.
+        """
+        proxy = (f'ssh -i {Config.SSH_KEY_PATH} -o StrictHostKeyChecking=no '
+                 f'-o ConnectTimeout={AnsibleService.GATEWAY_CONNECT_TIMEOUT} '
+                 f'-W %h:%p fitpath@{Config.DISCOVERY_GATEWAY_IP}')
+        base = f'-o StrictHostKeyChecking=no -o ProxyCommand="{proxy}"'
+        return f'{base} {extra}'.strip()
+
     @staticmethod
     def _create_inventory(hosts: List[Dict[str, str]], user: str) -> str:
         temp_dir = tempfile.mkdtemp(prefix='ansible_run_')
@@ -33,7 +52,7 @@ class AnsibleService:
         try:
             extravars = {
                 'ansible_ssh_private_key_file': Config.SSH_KEY_PATH,
-                'ansible_ssh_common_args': '-o StrictHostKeyChecking=no -o ConnectTimeout=3'
+                'ansible_ssh_common_args': AnsibleService.gateway_ssh_common_args('-o ConnectTimeout=3')
             }
 
             r = ansible_runner.run(
@@ -79,13 +98,13 @@ class AnsibleService:
                 module_args=command,
                 extravars={
                     'ansible_ssh_private_key_file': Config.SSH_KEY_PATH,
-                    'ansible_ssh_common_args': '-o StrictHostKeyChecking=no',
+                    'ansible_ssh_common_args': AnsibleService.gateway_ssh_common_args(),
                     'ansible_become': True,
                     'ansible_become_password': 'cefetmg'
                 },
                 quiet=True
             )
-            
+
             if hasattr(r, 'events'):
                 for event in r.events:
                     data = event.get('event_data', {})
@@ -143,7 +162,7 @@ class AnsibleService:
                 'target_user': username,
                 'target_state': state,
                 'ansible_ssh_private_key_file': Config.SSH_KEY_PATH,
-                'ansible_ssh_common_args': '-o StrictHostKeyChecking=no',
+                'ansible_ssh_common_args': AnsibleService.gateway_ssh_common_args(),
                 'management_pub_key': pub_key_content,
                 'ansible_become': True,
                 'ansible_become_password': 'cefetmg'
