@@ -16,6 +16,10 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# 1.5. Suporte cross-architecture arm64 (download de pacotes para os TV Boxes)
+COPY sources-arm64.list /etc/apt/sources.list.d/arm64.list
+RUN dpkg --add-architecture arm64 && apt-get update
+
 # 2. Criar usuario
 RUN useradd -m -s /bin/bash appuser
 ENV PATH="/home/appuser/.local/bin:${PATH}"

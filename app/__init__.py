@@ -29,12 +29,13 @@ def create_app(config_class=Config):
 
     # --- REGISTRO DE BLUEPRINTS ---
     # Gracas ao seu arquivo app/routes/__init__.py, podemos importar assim:
-    from app.routes import auth_bp, main_bp, admin_bp, discovery_bp
+    from app.routes import auth_bp, main_bp, admin_bp, discovery_bp, packages_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(discovery_bp)
+    app.register_blueprint(packages_bp)
 
     # --- INICIALIZACAO DO BANCO DE DADOS ---
     # Cria as tabelas e o admin inicial dentro do contexto da aplicacao

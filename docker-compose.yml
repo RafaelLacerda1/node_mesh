@@ -26,6 +26,9 @@ services:
       - DISCOVERY_INTERVAL_SECONDS=300
       - DISCOVERY_OFFLINE_THRESHOLD=3
 
+      # Instalacao remota de pacotes
+      - PACKAGES_ENABLED=true
+
     volumes:
       - ./data:/home/appuser/app/data
       - ./id_rsa:/home/appuser/.ssh/id_rsa:ro

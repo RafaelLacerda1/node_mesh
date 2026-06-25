@@ -1,0 +1,33 @@
+---
+- name: Instalar pacotes Debian offline nos nós
+  hosts: all
+  gather_facts: false
+  become: yes
+
+  # Tolerância a falhas (mesmo padrão do run_manage_user.yml)
+  ignore_unreachable: yes
+  ignore_errors: yes
+  any_errors_fatal: no
+
+  tasks:
+    - name: Criar diretório temporário para pacotes
+      ansible.builtin.file:
+        path: /tmp/pkg_install
+        state: directory
+        mode: '0755'
+
+    - name: Copiar pacotes .deb para o nó
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: /tmp/pkg_install/
+        mode: '0644'
+      loop: "{{ deb_files }}"
+
+    - name: Instalar pacotes via dpkg
+      ansible.builtin.shell: dpkg -i /tmp/pkg_install/*.deb 2>&1
+      register: dpkg_result
+
+    - name: Limpar diretório temporário
+      ansible.builtin.file:
+        path: /tmp/pkg_install
+        state: absent

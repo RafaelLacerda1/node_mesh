@@ -43,3 +43,7 @@ class Config:
     DISCOVERY_INTERVAL_SECONDS = int(os.environ.get("DISCOVERY_INTERVAL_SECONDS", "300"))
     DISCOVERY_OFFLINE_THRESHOLD = int(os.environ.get("DISCOVERY_OFFLINE_THRESHOLD", "3"))
 
+    # --- INSTALACAO REMOTA DE PACOTES ---
+    PACKAGES_ENABLED = os.environ.get("PACKAGES_ENABLED", "false").lower() == "true"
+    PACKAGES_CACHE_DIR = os.path.join(DB_FOLDER, 'packages')
+

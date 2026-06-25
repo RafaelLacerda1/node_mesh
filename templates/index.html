@@ -39,6 +39,7 @@
             </div>
             <div class="flex items-center gap-3">
                 {% if current_user.is_admin %}
+                <a href="{{ url_for('packages.packages_dashboard') }}" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg transition-all shadow-sm text-sm">📦 Pacotes</a>
                 <a href="{{ url_for('admin.dashboard') }}" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-lg transition-all shadow-sm text-sm">⚙️ Admin</a>
                 {% endif %}
                 <button id="refresh-btn" class="bg-primary hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-all shadow-sm flex items-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
