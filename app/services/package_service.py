@@ -32,14 +32,30 @@ class PackageService:
     _install_lock = threading.Lock()
     _current_job_id = None
     
-    # Catálogo controlado de pacotes externos suportados
+    # Catálogo de pacotes externos (fora dos repositórios Debian oficiais).
+    # Adicionar novo pacote = nova entrada aqui. Nenhum método novo necessário.
+    #
+    # Campos obrigatórios:
+    #   type            — tipo do artefato: 'deb' | (futuro: 'tgz', ...)
+    #   download_method — mecanismo de download no Gateway: 'apt' | (futuro: 'url', ...)
+    #   install_method  — mecanismo de instalação nos TV Box: 'dpkg' | (futuro: 'binary', ...)
+    #   apt_package     — nome do pacote para apt-cache/apt-get download
+    #
+    # Campos opcionais (repositório APT adicional):
+    #   apt_repo_key_url — URL da chave GPG do repositório
+    #   apt_repo_key_id  — identificador do arquivo no keyring (/usr/share/keyrings/)
+    #   apt_repo_line    — linha do sources.list
+    #   Ausentes = pacote disponível nos repositórios padrão do Gateway.
     EXTERNAL_PACKAGES = {
         'tailscale': {
-            'source': 'https://pkgs.tailscale.com/stable/',
-            'type': 'tgz',
-            'arch_key': 'arm64',
-            'install_method': 'binary',
-            'description': 'VPN mesh — binários estáticos de pkgs.tailscale.com',
+            'type': 'deb',
+            'download_method': 'apt',
+            'install_method': 'dpkg',
+            'apt_package': 'tailscale',
+            'apt_repo_key_url': 'https://pkgs.tailscale.com/stable/debian/bullseye.gpg',
+            'apt_repo_key_id':  'tailscale-archive-keyring',
+            'apt_repo_line':    'deb https://pkgs.tailscale.com/stable/debian bullseye main',
+            'description': 'VPN mesh — pacote .deb para Debian bullseye/arm64',
         }
     }
     
@@ -679,7 +695,7 @@ class PackageService:
                 'ansible_ssh_private_key_file': Config.SSH_KEY_PATH,
                 'ansible_ssh_common_args': AnsibleService.gateway_ssh_common_args('-o ConnectTimeout=10'),
                 'ansible_become': True,
-                'ansible_become_password': 'cefetmg',
+                'ansible_become_password': Config.ANSIBLE_BECOME_PASSWORD,
             }
             
             r = ansible_runner.run(
@@ -769,26 +785,189 @@ class PackageService:
         db.session.commit()
     
     # ===================================================================
-    #  PACOTES EXTERNOS (Nível 2)
+    #  PACOTES EXTERNOS — download via Gateway + instalação via dpkg
     # ===================================================================
-    
+
     @classmethod
     def _handle_external_package(cls, job_id: int, package_name: str,
                                  compatible_ips: List[str]):
-        """Lida com pacotes do catálogo externo (ex: tailscale)."""
+        """
+        Lida com pacotes do catálogo externo de forma genérica.
+        O comportamento é inteiramente dirigido pelos campos do catálogo
+        EXTERNAL_PACKAGES — nenhuma lógica específica por pacote.
+
+        Fluxo:
+          1. Verifica cache permanente da VM (manifesto).
+          2. Cache miss → solicita download ao Gateway (ARM64 nativo).
+          3. Despacha instalação pelo install_method do catálogo.
+        """
         if package_name not in cls.EXTERNAL_PACKAGES:
             cls._update_job(job_id, status='error',
-                          error_message=f'Pacote externo "{package_name}" não encontrado no catálogo.')
+                            error_message=f'Pacote externo "{package_name}" não encontrado no catálogo.')
             return
-        
-        # Para v1, pacotes externos precisam ser baixados manualmente
-        # e colocados em data/packages/external/
-        cls._update_job(job_id, status='error', package_type='external',
-                      error_message=f'Pacote externo "{package_name}" reconhecido no catálogo, '
-                                   f'mas o download automático de pacotes externos será '
-                                   f'implementado em fase futura. '
-                                   f'Para instalar manualmente, coloque o arquivo em '
-                                   f'data/packages/external/ e registre no cache_manifest.json.')
+
+        info = cls.EXTERNAL_PACKAGES[package_name]
+
+        # --- Verificar cache permanente ---
+        manifest = cls._load_manifest()
+        ext_entry = manifest.get('external_packages', {}).get(package_name)
+        deb_paths = []
+        cache_hit = False
+
+        if ext_entry:
+            dest_dir = os.path.join(Config.PACKAGES_CACHE_DIR, 'external', package_name)
+            candidate_paths = [
+                os.path.join(dest_dir, f)
+                for f in ext_entry.get('files', [])
+            ]
+            if candidate_paths and all(
+                os.path.exists(p) and os.path.getsize(p) > 0
+                for p in candidate_paths
+            ):
+                deb_paths = candidate_paths
+                cache_hit = True
+                logger.info(f"[PACKAGES] Job {job_id}: Cache hit para '{package_name}' "
+                            f"({len(deb_paths)} .deb)")
+
+        cls._update_job(job_id, cache_hit=cache_hit)
+
+        if not cache_hit:
+            cls._update_job(job_id, status='downloading')
+            deb_paths = cls._download_external_package(job_id, package_name, info)
+            if not deb_paths:
+                cls._update_job(job_id, status='error',
+                                error_message=f'Falha ao baixar "{package_name}" via Gateway.')
+                return
+
+        total_size = sum(os.path.getsize(f) for f in deb_paths if os.path.exists(f))
+        cls._update_job(job_id, total_debs=len(deb_paths), total_size_bytes=total_size)
+
+        # --- Despachar instalação pelo catálogo ---
+        install_method = info.get('install_method', 'dpkg')
+        if install_method == 'dpkg':
+            cls._distribute_and_install_debs(job_id, deb_paths, compatible_ips)
+        else:
+            cls._update_job(job_id, status='error',
+                            error_message=f'install_method "{install_method}" não implementado.')
+
+    @classmethod
+    def _download_external_package(cls, job_id: int, package_name: str,
+                                   info: dict) -> Optional[List[str]]:
+        """
+        Ponto de entrada para download de qualquer pacote externo.
+        Despacha pelo campo download_method do catálogo.
+        Retorna lista de paths locais (cache permanente da VM) ou None.
+        """
+        download_method = info.get('download_method')
+
+        if download_method == 'apt':
+            return cls._download_via_apt_on_gateway(job_id, package_name, info)
+
+        logger.error(f"[PACKAGES] Job {job_id}: download_method '{download_method}' "
+                     f"não implementado para '{package_name}'")
+        return None
+
+    @classmethod
+    def _download_via_apt_on_gateway(cls, job_id: int, package_name: str,
+                                     info: dict) -> Optional[List[str]]:
+        """
+        Executa o download de pacotes ARM64 no Gateway via APT.
+
+        O Gateway (ARM64 nativo) resolve dependências via apt-cache e baixa
+        cada .deb via apt-get download, sem nenhuma instalação local.
+        Os arquivos são copiados para o cache permanente da VM via Ansible fetch
+        e removidos imediatamente do Gateway.
+
+        Segue o mesmo padrão de _validate_nodes() e _distribute_and_install_debs():
+        _create_inventory → ansible_runner.run → walk r.events → finally rmtree.
+        """
+        dest_dir = os.path.join(Config.PACKAGES_CACHE_DIR, 'external', package_name)
+        os.makedirs(dest_dir, exist_ok=True)
+
+        hosts_list = [{'ip': Config.DISCOVERY_GATEWAY_IP}]
+        temp_dir = AnsibleService._create_inventory(hosts_list, user='fitpath')
+
+        try:
+            playbook_path = os.path.join(
+                Config.ANSIBLE_DIR, 'playbooks', 'download_on_gateway.yml'
+            )
+
+            extravars = {
+                'apt_package': info['apt_package'],
+                'tmp_dir': f'/tmp/pkg_{job_id}',
+                'dest_dir': dest_dir,
+                'ansible_ssh_private_key_file': Config.SSH_KEY_PATH,
+                'ansible_ssh_common_args': AnsibleService.gateway_direct_ssh_args(),
+                'ansible_become_password': Config.ANSIBLE_BECOME_PASSWORD,
+            }
+
+            # Campos opcionais de configuração de repositório
+            for field in ('apt_repo_key_url', 'apt_repo_key_id', 'apt_repo_line'):
+                if field in info:
+                    extravars[field] = info[field]
+
+            logger.info(f"[PACKAGES] Job {job_id}: Solicitando download de "
+                        f"'{package_name}' ao Gateway ({Config.DISCOVERY_GATEWAY_IP})...")
+
+            r = ansible_runner.run(
+                private_data_dir=temp_dir,
+                inventory=os.path.join(temp_dir, 'inventory.yml'),
+                playbook=playbook_path,
+                extravars=extravars,
+                quiet=True,
+            )
+
+            if r.rc != 0:
+                logger.error(f"[PACKAGES] Job {job_id}: Playbook de download falhou (rc={r.rc})")
+                if hasattr(r, 'events'):
+                    for event in r.events:
+                        if event['event'] in ('runner_on_failed', 'runner_on_unreachable'):
+                            msg = (event.get('event_data', {})
+                                       .get('res', {})
+                                       .get('msg', ''))
+                            if msg:
+                                logger.error(f"[PACKAGES] Job {job_id}: Gateway: {msg}")
+                return None
+
+            # Listar .deb copiados para o cache permanente da VM
+            deb_files = sorted([
+                os.path.join(dest_dir, f)
+                for f in os.listdir(dest_dir)
+                if f.endswith('.deb') and os.path.isfile(os.path.join(dest_dir, f))
+            ])
+
+            if not deb_files:
+                logger.error(f"[PACKAGES] Job {job_id}: Nenhum .deb em {dest_dir} "
+                             f"após download no Gateway")
+                return None
+
+            # Registrar no manifesto (cache permanente — sem TTL, sem expiração)
+            manifest = cls._load_manifest()
+            if 'external_packages' not in manifest:
+                manifest['external_packages'] = {}
+
+            total_size = sum(os.path.getsize(f) for f in deb_files)
+            manifest['external_packages'][package_name] = {
+                'files': [os.path.basename(f) for f in deb_files],
+                'total_size_bytes': total_size,
+                'downloaded_at': datetime.utcnow().isoformat(),
+                'origin': 'external',
+                'package_type': info.get('type', 'deb'),
+                'download_method': info.get('download_method', 'apt'),
+                'install_method': info.get('install_method', 'dpkg'),
+            }
+            cls._save_manifest(manifest)
+
+            logger.info(f"[PACKAGES] Job {job_id}: {len(deb_files)} .deb armazenados "
+                        f"em cache permanente ({total_size // 1024} KB)")
+            return deb_files
+
+        except Exception as e:
+            logger.error(f"[PACKAGES] Job {job_id}: Erro no download via Gateway: {e}",
+                         exc_info=True)
+            return None
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
     # ===================================================================
     #  UTILITÁRIOS INTERNOS

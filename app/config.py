@@ -20,6 +20,7 @@ class Config:
     # Ansible
     ANSIBLE_DIR = os.path.join(PROJECT_ROOT, 'ansible')
     SSH_KEY_PATH = os.path.join(os.path.expanduser('~'), '.ssh', 'id_rsa')
+    ANSIBLE_BECOME_PASSWORD = os.environ.get("ANSIBLE_BECOME_PASSWORD", "cefetmg")
     
     # WebSSH
     WEBSSH_URL = os.environ.get("WEBSSH_URL", "http://172.30.0.14:8888/")

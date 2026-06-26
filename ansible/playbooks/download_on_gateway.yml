@@ -1,0 +1,119 @@
+---
+- name: Baixar pacotes ARM64 no Gateway para cache permanente da VM
+  hosts: all
+  gather_facts: false
+  become: false
+
+  # Tolerância a falhas — mesmo padrão dos demais playbooks do projeto
+  ignore_unreachable: yes
+  ignore_errors: yes
+  any_errors_fatal: no
+
+  tasks:
+    # ----------------------------------------------------------------
+    # Configuração de repositório APT adicional (condicional)
+    # Executado apenas quando o catálogo define apt_repo_key_id e o
+    # repositório ainda não está presente no Gateway.
+    # ----------------------------------------------------------------
+
+    - name: Verificar se repositório adicional já está configurado
+      ansible.builtin.stat:
+        path: "/etc/apt/sources.list.d/{{ apt_repo_key_id }}.list"
+      register: repo_status
+      when: apt_repo_key_id is defined
+
+    - name: Baixar chave GPG do repositório
+      ansible.builtin.get_url:
+        url: "{{ apt_repo_key_url }}"
+        dest: "/tmp/{{ apt_repo_key_id }}.gpg.raw"
+        mode: "0644"
+      when: >
+        apt_repo_key_url is defined and
+        apt_repo_key_id is defined and
+        not (repo_status.stat.exists | default(false))
+
+    - name: Instalar chave GPG no keyring APT
+      ansible.builtin.shell: >
+        gpg --dearmor < /tmp/{{ apt_repo_key_id }}.gpg.raw
+        > /usr/share/keyrings/{{ apt_repo_key_id }}.gpg
+      become: true
+      when: >
+        apt_repo_key_id is defined and
+        not (repo_status.stat.exists | default(false))
+
+    - name: Registrar repositório APT adicional
+      ansible.builtin.copy:
+        content: "{{ apt_repo_line }}\n"
+        dest: "/etc/apt/sources.list.d/{{ apt_repo_key_id }}.list"
+        mode: "0644"
+      become: true
+      when: >
+        apt_repo_line is defined and
+        apt_repo_key_id is defined and
+        not (repo_status.stat.exists | default(false))
+
+    - name: Atualizar índice APT após adicionar repositório
+      ansible.builtin.command: apt-get update -qq
+      become: true
+      when: >
+        apt_repo_line is defined and
+        apt_repo_key_id is defined and
+        not (repo_status.stat.exists | default(false))
+
+    # ----------------------------------------------------------------
+    # Download + fetch para a VM, com limpeza garantida no Gateway.
+    # O bloco always garante que o diretório temporário seja removido
+    # do Gateway mesmo em caso de falha no download ou no fetch.
+    # ----------------------------------------------------------------
+
+    - block:
+        - name: Criar diretório temporário de download
+          ansible.builtin.file:
+            path: "{{ tmp_dir }}"
+            state: directory
+            mode: "0755"
+
+        - name: Resolver dependências e baixar pacotes ARM64
+          ansible.builtin.shell: |
+            set -o pipefail
+            cd "{{ tmp_dir }}"
+            apt-cache depends --recurse \
+              --no-recommends --no-suggests --no-conflicts \
+              --no-breaks --no-replaces --no-enhances \
+              "{{ apt_package }}:arm64" 2>/dev/null \
+              | grep -v '^[[:space:]]' \
+              | grep -v '<' \
+              | grep -v '^|' \
+              | grep -v '^$' \
+              | sed 's/:.*//' \
+              | sort -u \
+              | while IFS= read -r pkg; do
+                  apt-get download "${pkg}:arm64" 2>/dev/null \
+                    || apt-get download "${pkg}" 2>/dev/null \
+                    || true
+                done
+          args:
+            executable: /bin/bash
+          register: download_result
+
+        - name: Listar arquivos .deb baixados
+          ansible.builtin.find:
+            paths: "{{ tmp_dir }}"
+            patterns: "*.deb"
+          register: deb_files_found
+
+        - name: Copiar pacotes para cache permanente da VM
+          ansible.builtin.fetch:
+            src: "{{ item.path }}"
+            dest: "{{ dest_dir }}/{{ item.path | basename }}"
+            flat: true
+          loop: "{{ deb_files_found.files }}"
+          when: deb_files_found.files | length > 0
+
+      always:
+        # Limpeza imediata do Gateway — executada mesmo em caso de falha.
+        # O Gateway não armazena pacotes; apenas realiza o download.
+        - name: Remover diretório temporário do Gateway
+          ansible.builtin.file:
+            path: "{{ tmp_dir }}"
+            state: absent

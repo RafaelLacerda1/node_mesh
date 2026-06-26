@@ -30,6 +30,19 @@ class AnsibleService:
         return f'{base} {extra}'.strip()
 
     @staticmethod
+    def gateway_direct_ssh_args(extra: str = '') -> str:
+        """
+        Retorna ansible_ssh_common_args para conexao Ansible direta VM->Gateway,
+        sem ProxyCommand. Usado quando o Gateway e o ALVO da operacao Ansible
+        (ex: download de pacotes externos via APT), nao o salto para TV Box.
+        Complemento de gateway_ssh_common_args(): um conecta ao Gateway,
+        o outro conecta atraves dele.
+        """
+        base = (f'-o StrictHostKeyChecking=no '
+                f'-o ConnectTimeout={AnsibleService.GATEWAY_CONNECT_TIMEOUT}')
+        return f'{base} {extra}'.strip()
+
+    @staticmethod
     def _create_inventory(hosts: List[Dict[str, str]], user: str) -> str:
         temp_dir = tempfile.mkdtemp(prefix='ansible_run_')
         inventory = {'all': {'hosts': {}}}
@@ -100,7 +113,7 @@ class AnsibleService:
                     'ansible_ssh_private_key_file': Config.SSH_KEY_PATH,
                     'ansible_ssh_common_args': AnsibleService.gateway_ssh_common_args(),
                     'ansible_become': True,
-                    'ansible_become_password': 'cefetmg'
+                    'ansible_become_password': Config.ANSIBLE_BECOME_PASSWORD
                 },
                 quiet=True
             )
@@ -165,7 +178,7 @@ class AnsibleService:
                 'ansible_ssh_common_args': AnsibleService.gateway_ssh_common_args(),
                 'management_pub_key': pub_key_content,
                 'ansible_become': True,
-                'ansible_become_password': 'cefetmg'
+                'ansible_become_password': Config.ANSIBLE_BECOME_PASSWORD
             }
             
             if password:
