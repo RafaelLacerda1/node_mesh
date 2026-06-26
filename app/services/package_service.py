@@ -54,7 +54,7 @@ class PackageService:
             'apt_package': 'tailscale',
             'apt_repo_key_url': 'https://pkgs.tailscale.com/stable/debian/bullseye.gpg',
             'apt_repo_key_id':  'tailscale-archive-keyring',
-            'apt_repo_line':    'deb https://pkgs.tailscale.com/stable/debian bullseye main',
+            'apt_repo_line':    'deb [arch=arm64 signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian bullseye main',
             'description': 'VPN mesh — pacote .deb para Debian bullseye/arm64',
         }
     }
